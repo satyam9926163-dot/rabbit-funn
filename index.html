@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Runner</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;padding:12px;font-family:system-ui,sans-serif;background:#f3f0e8;color:#222}
+  .hide{display:none!important}
+  button{font:inherit;cursor:pointer;border:0;border-radius:8px;padding:8px 14px;background:#1b7f4b;color:#fff}
+  button.alt{background:#555}
+  button:focus-visible,a:focus-visible{outline:3px solid #f5b301;outline-offset:2px}
+  .card{color:#222;background:#fff;border-radius:12px;padding:14px;margin:8px 0;text-align:center}
+  #game{max-width:520px;margin:0 auto}
+  .bar{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0;flex-wrap:wrap}
+  #stage{position:relative;background:inherit}
+  #stage.fs{background:#16231c;color:#fff;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:8px}
+  #stage.pfs{position:fixed;inset:0;z-index:100}
+  #stage.fs .bar{width:min(calc(100vw - 16px),calc((100vh - 80px)*480/260))}
+  #c{display:block;width:100%;height:auto;border-radius:10px;background:#fdf6e3;touch-action:manipulation}
+  #stage.fs #c{width:min(100vw,calc((100vh - 80px)*480/260))}
+  #stage.fs .lowbar,#stage.fs .hint{display:none}
+  #exitFs{display:none;padding:6px 10px}
+  #stage.pfs #exitFs{display:inline-block}
+  #wallet{background:#f5b301;color:#222;font-weight:700}
+  .modal{position:absolute;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:12px;z-index:5}
+  .modal .card{width:100%;max-width:340px;max-height:100%;overflow:auto;color:#222}
+  .animal{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #eee;text-align:left}
+  .animal span.e{font-size:30px}
+  .animal .n{flex:1}
+  .animal button{min-width:88px}
+  .pay-btn{display:inline-block;padding:10px 20px;margin:8px 0;background:#1b7f4b;color:#fff;text-decoration:none;border-radius:8px}
+  .upi{font-size:18px;background:#f3f0e8;padding:8px;border-radius:8px;user-select:all}
+  .apps{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin:4px 0}
+  .apps a{padding:6px 12px;border-radius:8px;background:#e8e2d0;color:#222;text-decoration:none;font-size:14px}
+  .hint{font-size:12px;opacity:.7}
+</style>
+</head>
+<body>
+
+<div id="game">
+  <div class="bar">
+    <span id="who">Player</span>
+    <button class="alt" id="out" style="width:auto;padding:6px 12px;margin:0">Logout</button>
+  </div>
+
+  <div id="stage">
+    <div class="bar">
+      <button id="wallet" title="Open shop">₹ <span id="coins">0</span> · Shop</button>
+      <span>Score: <b id="score">0</b></span>
+      <span>Best: <b id="best">0</b></span>
+      <button id="exitFs" class="alt" title="Exit full screen">✕</button>
+    </div>
+
+    <canvas id="c" width="480" height="260"></canvas>
+
+    <div class="bar lowbar">
+      <button id="donateBtn">🎓 Donate</button>
+      <button id="pay20">₹20 Pay owner</button>
+      <button id="fs" class="alt">⛶ Full screen</button>
+    </div>
+    <div class="hint">Tap or press Space to jump. Double tap for a massive jump over big rocks. Collect ₹ coins, then tap your ₹ balance to buy animals.</div>
+
+    <div id="over" class="card hide">
+      <h2 style="margin:0 0 6px">Game over</h2>
+      <p style="margin:0 0 10px">Score <b id="oScore">0</b> · Earned ₹<b id="oRun">0</b></p>
+      <button id="again">Play again</button>
+    </div>
+
+    <!-- SHOP -->
+    <div id="shop" class="modal hide">
+      <div class="card">
+        <h2 style="margin:0">🛒 Animal shop</h2>
+        <p style="margin:4px 0 8px">Your balance: ₹<b id="shopBal">0</b></p>
+        <div id="list"></div>
+        <button class="alt" id="shopClose" style="margin-top:10px">Close</button>
+      </div>
+    </div>
+
+    <!-- PAY (donate ₹999 / owner ₹20) -->
+    <div id="donate" class="modal hide">
+      <div class="card">
+        <h2 id="payTitle" style="margin:0 0 6px"></h2>
+        <p id="payText" style="margin:0 0 8px"></p>
+        <div class="upi" id="upi">satyamtiwari45@fam</div>
+        <button id="copy" class="alt" style="margin:8px 0">Copy UPI ID</button><br>
+        <a class="pay-btn payA" id="payLink" href="#"></a>
+        <div class="apps" id="apps">
+          <a class="payA" id="gpay" href="#">GPay</a>
+          <a class="payA" id="phonepe" href="#">PhonePe</a>
+          <a class="payA" id="paytm" href="#">Paytm</a>
+        </div>
+        <p class="hint" id="payNote">Opens GPay, PhonePe, Paytm or any UPI app on your phone.</p>
+        <button class="alt" id="donClose">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const cv = $('c'), g = cv.getContext('2d'), W = 480, H = 260, GR = 215;
+
+// ---- saved data ----
+let S = null;
+try { S = JSON.parse(localStorage.getItem('runner-save')); } catch (e) {}
+S = S || { coins: 0, best: 0, own: ['🐕'], pick: '🐕' };
+const store = () => { try { localStorage.setItem('runner-save', JSON.stringify(S)); } catch (e) {} };
+
+const ANIMALS = [
+  ['🐕', 'Dog', 0], ['🐱', 'Cat', 20], ['🐰', 'Rabbit', 50],
+  ['🦊', 'Fox', 100], ['🐼', 'Panda', 200], ['🦄', 'Unicorn', 500],
+  ['🐯', 'Tiger', 800], ['🦁', 'Lion', 1500], ['🐘', 'Elephant', 3000],
+  ['🐲', 'Dragon', 5000], ['🦖', 'T-Rex', 10000]
+];
+
+// ---- state ----
+let nextBig = 400, st = 'idle', last = 0, p, obs, coinsOn, score, speed, runCoins, spawnIn, coinIn, tick = 0;
+
+function reset() {
+  p = { y: GR, vy: 0, j: 0 }; nextBig = 400; obs = []; coinsOn = [];
+  score = 0; speed = 5; runCoins = 0; spawnIn = 300; coinIn = 150;
+}
+reset();
+
+function ui() {
+  $('coins').textContent = S.coins;
+  $('score').textContent = Math.floor(score);
+  $('best').textContent = S.best;
+}
+
+// ---- obstacles ----
+const TYPES = [
+  { e: '🌵', w: 16, h: 28, up: 0, from: 0 },
+  { e: '🪨', w: 26, h: 21, up: 0, from: 0 },
+  { e: '🌵', w: 19, h: 46, up: 0, from: 150 },           // tall: jump early
+  { e: '🌵', w: 36, h: 28, up: 0, from: 250, dbl: 1 },     // double cactus
+  { e: '🦅', w: 25, h: 18, up: 22, from: 400 },           // low bird: jump over
+  { e: '🦇', w: 25, h: 18, up: 52, from: 600 }            // high bird: run under, don't jump too high
+];
+function spawn() {
+  if (score >= nextBig) {                       // BONUS coins, then a BIG rock (needs double tap)
+    for (let i = 0; i < 5; i++) coinsOn.push({ x: W + 10 + i * 30, y: GR - 50 - Math.sin(i / 4 * Math.PI) * 45, r: 9, v: 2 });
+    const off = 160 + speed * 25;
+    obs.push({ big: 1, w: 38, h: 120, up: 0, x: W + 10 + off });
+    nextBig = score + 500 + Math.random() * 300;
+    spawnIn = off + speed * 50 + 170;
+    return;
+  }
+  const ok = TYPES.filter(t => score >= t.from);
+  const t = ok[Math.floor(Math.random() * ok.length)];
+  obs.push({ ...t, x: W + 10 });
+  spawnIn = speed * 42 + 90 + Math.random() * 180;
+}
+
+function spawnCoin() {
+  coinIn = 70 + Math.random() * 130;
+  if (obs.some(o => o.x > W - 70)) return;
+  coinsOn.push({ x: W + 10, y: GR - (Math.random() < .5 ? 22 : 85), r: 9 });
+}
+
+// ---- input ----
+function jump() {
+  if (st === 'idle') { st = 'run'; return; }
+  if (st === 'over') return;
+  if (st !== 'run') return;
+  if (p.y >= GR) { p.vy = -11.5; p.j = 1; }
+  else if (p.j === 1) { p.vy = -12.5; p.j = 2; }   // second tap = massive jump
+}
+cv.addEventListener('pointerdown', e => { e.preventDefault(); jump(); });
+addEventListener('keydown', e => {
+  if (['Space', 'ArrowUp', 'KeyW'].includes(e.code) && !modalOpen()) {
+    e.preventDefault(); jump();
+  }
+});
+
+// ---- loop ----
+const hit = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+const modalOpen = () => !$('shop').classList.contains('hide') || !$('donate').classList.contains('hide');
+
+function update(dt) {
+  tick += dt;
+  speed = Math.min(13, 5 + score * 0.004);       // gets faster as you survive
+  score += speed * dt * 0.1;
+  p.vy += 0.6 * dt; p.y += p.vy * dt;
+  if (p.y >= GR) { p.y = GR; p.vy = 0; p.j = 0; }
+
+  spawnIn -= speed * dt; if (spawnIn <= 0) spawn();
+  coinIn -= speed * dt;  if (coinIn <= 0) spawnCoin();
+
+  const me = { x: 62, y: p.y - 28, w: 24, h: 26 };
+  obs.forEach(o => o.x -= speed * dt);
+  coinsOn.forEach(c => c.x -= speed * dt);
+  obs = obs.filter(o => o.x > -60);
+
+  for (const o of obs) {
+    if (hit(me, { x: o.x + 3, y: GR - o.up - o.h + 3, w: o.w - 6, h: o.h - 6 })) return gameOver();
+  }
+  coinsOn = coinsOn.filter(c => {
+    if (hit(me, { x: c.x - c.r, y: c.y - c.r, w: c.r * 2, h: c.r * 2 })) { S.coins += c.v || 1; runCoins += c.v || 1; return false; }
+    return c.x > -20;
+  });
+  ui();
+}
+
+function gameOver() {
+  st = 'over';
+  if (score > S.best) S.best = Math.floor(score);
+  store(); ui();
+  $('oScore').textContent = Math.floor(score);
+  $('oRun').textContent = runCoins;
+  $('over').classList.remove('hide');
+}
+
+function draw() {
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = '#fdf6e3'; g.fillRect(0, 0, W, H);
+  g.fillStyle = '#e4d8b4'; g.fillRect(0, GR, W, H - GR);
+  g.fillStyle = '#c9b987';
+  for (let i = 0; i < 12; i++) g.fillRect(((i * 61 - tick * speed * 0.5) % W + W) % W, GR + 12 + (i % 3) * 8, 14, 2);
+
+  g.textBaseline = 'bottom';
+  obs.forEach(o => {
+    if (o.big) {
+      g.fillStyle = '#6f5f4f'; g.fillRect(o.x, GR - o.h, o.w, o.h);
+      g.fillStyle = '#8c7a66'; g.fillRect(o.x, GR - o.h, o.w, 10);
+      g.fillStyle = '#55473a'; g.fillRect(o.x + o.w - 8, GR - o.h + 10, 8, o.h - 10);
+      return;
+    }
+    g.font = (o.h + 6) + 'px serif';
+    if (o.dbl) { g.fillText(o.e, o.x, GR + 2); g.fillText(o.e, o.x + 16, GR + 2); }
+    else g.fillText(o.e, o.x, GR - o.up + 3);
+  });
+
+  coinsOn.forEach(c => {
+    g.fillStyle = c.v === 2 ? '#ff8a00' : '#f5b301'; g.beginPath(); g.arc(c.x, c.y, c.r, 0, 7); g.fill();
+    g.fillStyle = '#7a5600'; g.font = 'bold 12px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText('₹', c.x, c.y + 1); g.textAlign = 'left'; g.textBaseline = 'bottom';
+  });
+
+  if (st === 'run' && obs.some(o => o.big && o.x < W - 20 && o.x > 110)) {
+    g.fillStyle = 'rgba(180,40,40,.9)'; g.font = 'bold 16px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText('Big rock! Double tap to jump high', W / 2, 36); g.textAlign = 'left'; g.textBaseline = 'bottom';
+  }
+  g.font = '34px serif';
+  g.save(); g.translate(88, p.y + 3); g.scale(-1, 1);   // flip so the animal faces the obstacles
+  g.fillText(S.pick, 0, 0); g.restore();
+
+  if (st !== 'run') {
+    g.fillStyle = 'rgba(0,0,0,.55)'; g.font = 'bold 20px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(st === 'idle' ? 'Tap or press Space to start' : '', W / 2, 90);
+    g.textAlign = 'left';
+  }
+}
+
+function frame(t) {
+  const dt = Math.min(2.5, (t - last) / 16.67 || 1); last = t;
+  if (st === 'run' && !modalOpen() && !document.hidden) update(dt);
+  draw();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+document.addEventListener('click', e => { const b = e.target.closest('button'); if (b) b.blur(); });
+
+// ---- restart ----
+$('again').onclick = () => { reset(); $('over').classList.add('hide'); st = 'run'; ui(); };
+
+// ---- shop ----
+function renderShop() {
+  $('shopBal').textContent = S.coins;
+  $('list').innerHTML = '';
+  ANIMALS.forEach(([e, name, price]) => {
+    const own = S.own.includes(e), on = S.pick === e;
+    const row = document.createElement('div'); row.className = 'animal';
+    row.innerHTML = `<span class="e">${e}</span><span class="n">${name}</span>`;
+    const b = document.createElement('button');
+    if (on) { b.textContent = 'Using'; b.disabled = true; b.className = 'alt'; }
+    else if (own) { b.textContent = 'Use'; b.onclick = () => { S.pick = e; store(); renderShop(); }; }
+    else {
+      b.textContent = 'Buy ₹' + price.toLocaleString('en-IN');
+      if (S.coins < price) { b.disabled = true; b.className = 'alt'; }
+      b.onclick = () => { S.coins -= price; S.own.push(e); S.pick = e; store(); ui(); renderShop(); };
+    }
+    row.appendChild(b); $('list').appendChild(row);
+  });
+}
+$('wallet').onclick = () => { renderShop(); $('shop').classList.remove('hide'); };
+$('shopClose').onclick = () => $('shop').classList.add('hide');
+
+// ---- pay (donate / owner) ----
+const UPI = 'satyamtiwari45@fam';
+const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform));
+function openPay(amt, title, text, note) {
+  const q = 'pa=' + UPI + '&pn=Satyam%20Tiwari&am=' + amt.toFixed(2) + '&cu=INR&tn=' + encodeURIComponent(note);
+  $('payTitle').textContent = title;
+  $('payText').textContent = text;
+  $('payLink').textContent = 'Pay ₹' + amt + ' via UPI';
+  $('payLink').href = 'upi://pay?' + q;                 // lets the phone show all installed UPI apps
+  $('gpay').href = 'gpay://upi/pay?' + q;
+  $('phonepe').href = 'phonepe://pay?' + q;
+  $('paytm').href = 'paytmmp://pay?' + q;
+  document.querySelectorAll('.payA').forEach(a => a.dataset.amt = amt);
+  $('apps').classList.toggle('hide', !isMobile);
+  $('payNote').textContent = 'Opens GPay, PhonePe, Paytm or any UPI app on your phone.';
+  $('copy').textContent = 'Copy UPI ID';
+  $('donate').classList.remove('hide');
+}
+$('donateBtn').onclick = () => openPay(999, '🎓 Support students', 'Donate ₹999 for students using any UPI app.', 'Donate for students');
+$('pay20').onclick = () => openPay(20, '₹20 for the owner', 'Pay ₹20 to the game owner using any UPI app.', 'Pay game owner');
+$('donClose').onclick = () => $('donate').classList.add('hide');
+document.querySelectorAll('.payA').forEach(a => a.addEventListener('click', e => {
+  if (!isMobile) {   // UPI links only open on phones
+    e.preventDefault();
+    navigator.clipboard && navigator.clipboard.writeText(UPI).catch(() => {});
+    $('payNote').textContent = 'UPI links open only on phones. The UPI ID is copied: paste it in any UPI app and pay ₹' + a.dataset.amt + '.';
+    return;
+  }
+  setTimeout(() => {   // if no app opened, the page is still visible
+    if (!document.hidden) $('payNote').textContent = 'No app opened? Try another app button, or copy the UPI ID and pay manually. If this page is inside Instagram/WhatsApp, open it in Chrome or Safari.';
+  }, 2200);
+}));
+$('copy').onclick = () => {
+  (navigator.clipboard ? navigator.clipboard.writeText(UPI) : Promise.reject())
+    .then(() => $('copy').textContent = 'Copied ✓')
+    .catch(() => { const r = document.createRange(); r.selectNodeContents($('upi')); getSelection().removeAllRanges(); getSelection().addRange(r); $('copy').textContent = 'Now press Copy'; });
+};
+
+// ---- full screen (real fullscreen, with a fallback for iPhone) ----
+const stage = $('stage');
+function enterFS() {
+  const req = stage.requestFullscreen || stage.webkitRequestFullscreen;
+  const fallback = () => stage.classList.add('fs', 'pfs');
+  if (!req) return fallback();
+  try {
+    const r = req.call(stage);
+    if (r && r.catch) r.catch(fallback);
+  } catch (e) { fallback(); }
+  try { screen.orientation.lock('landscape').catch(() => {}); } catch (e) {}
+}
+function exitFS() {
+  stage.classList.remove('pfs', 'fs');
+  const el = document.fullscreenElement || document.webkitFullscreenElement;
+  if (el) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+}
+const isFS = () => stage.classList.contains('fs');
+$('fs').onclick = () => isFS() ? exitFS() : enterFS();
+$('exitFs').onclick = exitFS;
+['fullscreenchange', 'webkitfullscreenchange'].forEach(ev => document.addEventListener(ev, () => {
+  const on = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  stage.classList.toggle('fs', on);
+  if (!on) stage.classList.remove('pfs');
+}));
+
+// ---- your login hooks ----
+// $('who').textContent = yourUser.name;
+// $('out').onclick = () => { /* your existing logout code */ };
+
+ui();
+</script>
+</body>
+</html>
